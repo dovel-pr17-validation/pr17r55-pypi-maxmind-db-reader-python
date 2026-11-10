@@ -1,0 +1,43 @@
+name: "Code scanning - action"
+
+on:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+  pull_request:
+  schedule:
+    - cron: '0 18 * * 0'
+
+permissions: {}
+
+jobs:
+  CodeQL-Build:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: python, cpp
+
+      - name: Install uv with mise
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: uv
+
+      - run: uv build
+        env:
+          MAXMINDDB_REQUIRE_EXTENSION: 1
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

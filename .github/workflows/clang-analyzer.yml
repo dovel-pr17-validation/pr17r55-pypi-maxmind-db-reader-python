@@ -1,0 +1,36 @@
+name: Clang Static Analysis
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '3 15 * * SUN'
+
+permissions: {}
+
+jobs:
+  clang-analyzer:
+    name: Clang Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Install clang-tools
+        run: sudo apt install clang-tools
+
+      - name: Install uv with mise
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: uv
+
+      - name: Build and run analyzer
+        # We exclude extension/libmaxminddb/ as libmaxminddb has its own workflow
+        # for this and we are not able to correct any issues with that code here.
+        run: scan-build --exclude extension/libmaxminddb/ --status-bugs uv build
+        env:
+          CFLAGS: "-Werror -Wall -Wextra"
+          MAXMINDDB_REQUIRE_EXTENSION: 1

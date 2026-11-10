@@ -1,0 +1,530 @@
+.. :changelog:
+
+History
+-------
+
+3.3.0
+++++++++++++++++++
+
+* Fixed iteration over an IPv6 database with a network shorter than /96
+  whose first bits are zero, such as ``::/1``. The readers raised
+  ``ValueError`` or skipped networks. The pure Python reader also raised
+  ``ValueError`` for a network that starts at ``::1:0:0``, such as
+  ``::1:0:0/96``.
+* The pure Python reader now raises ``InvalidDatabaseError`` for a search tree
+  record that points before the data section. Previously, it returned an
+  empty map.
+* Iterating over a database with a corrupt search tree, such as one with a
+  cycle, now raises ``InvalidDatabaseError``. Previously, the C extension
+  could corrupt memory, and the pure Python reader raised ``RecursionError``
+  or returned part of the networks.
+* A second ``__init__`` on a pure Python ``Reader`` now closes the old
+  database, and an iterator from before it raises ``ValueError``, as in the
+  C extension. Before, the iterator walked the new database with node
+  numbers from the old one. A failed ``__init__`` keeps the old database.
+  After ``close()``, an iterator raises ``ValueError`` in every mode.
+* The pure Python reader now raises ``InvalidDatabaseError`` when a value,
+  search tree record or pointer goes past the end of the data section, or when
+  the search tree overlaps the metadata. Previously, it could return a shorter
+  or wrong value, or decode bytes from the metadata section.
+* The pure Python reader now raises ``InvalidDatabaseError`` when a record map
+  key is not a string, as the C extension does. Previously, it returned the
+  non-string key or raised ``TypeError``.
+* The pure Python reader now raises ``InvalidDatabaseError`` for extended type
+  byte 0. Previously, it decoded the value as a map. The C extension still
+  decodes it as a map, because libmaxminddb does not check this byte.
+* An empty database file now raises ``InvalidDatabaseError`` in ``MODE_FILE``,
+  as in ``MODE_MEMORY``. Previously, it raised ``OSError`` on platforms with
+  ``os.pread``.
+* C extension:
+
+  * Fixed segmentation faults from invalid use of ``Metadata``, ``Reader`` and
+    the internal iterator type.
+  * Fixed a segmentation fault on a database with a map key that is not a
+    string. Such a database now raises ``InvalidDatabaseError``.
+  * Fixed large ``uint32`` values, which came back negative on platforms
+    with a 32-bit C ``long``, such as Windows.
+  * Fixed memory leaks and a use-after-free. A second ``__init__`` on a
+    ``Reader`` now closes the old database, and an iterator from before it
+    raises ``ValueError``. A failed ``__init__`` keeps the old database.
+    Reinitializing a ``Metadata`` changes nothing.
+  * Fixed a ``RuntimeWarning`` or ``RuntimeError`` on free-threaded Python on
+    macOS when a ``Reader`` failed to open or was used without ``__init__``.
+  * Fixed a deadlock on free-threaded Python when a ``Reader`` was closed
+    during iteration, from another thread or from a signal handler.
+  * Fixed a crash on free-threaded Python when two threads advanced the same
+    iterator.
+  * An exhausted iterator now raises ``StopIteration`` after its ``Reader``
+    closes, not ``ValueError``.
+  * The iterator now stops after an error, as the pure Python iterator does.
+    This includes an error in the data of one record, but not a failure to
+    get the read lock. Previously, the next call returned the remaining
+    networks.
+  * Added the ``node_byte_size`` and ``search_tree_size`` properties to
+    ``Metadata``, as the pure Python ``Metadata`` has.
+
+* Metadata:
+
+  * The pure Python reader ignores unknown keys, which a new minor version of
+    the format can add, if their values decode. Previously, an unknown key
+    raised ``TypeError``. It raises ``InvalidDatabaseError`` for a missing key,
+    a key that is not a string, a value that is not of the expected Python
+    type or is out of range, an invalid ``ip_version`` or format version, a
+    ``build_epoch`` of 0, or a string that is not UTF-8 anywhere in the
+    metadata. Previously, the reader opened most of these files, and some
+    raised ``TypeError`` or ``UnicodeDecodeError``.
+  * The C extension ignores unknown keys unless a value cannot be decoded,
+    such as a map with a key that is not a string. Previously,
+    ``Reader.metadata()`` crashed with a segmentation fault on any unknown
+    key.
+  * For a metadata string that is not UTF-8, the ``InvalidDatabaseError``
+    from the C ``Reader.metadata()`` has the ``UnicodeDecodeError`` as its
+    cause.
+
+* Added ``maxminddb.Mode``, which the README already described.
+* Type checkers now reject a subscript of ``maxminddb.types.Record`` or
+  ``Primitive``, such as ``Record[str]``. The subscript still works at
+  runtime. Pull request by Adam Hitchcock. GitHub #464.
+
+* Type hints:
+
+  * ``Primitive`` includes ``bytearray``, which the C extension returns for
+    the ``bytes`` type.
+  * ``Reader.__iter__`` declares its item type.
+  * Added the ``StrOrBytesPath`` and ``DatabaseSource`` aliases to
+    ``maxminddb.types``.
+  * The ``maxminddb.extension.Reader`` stub accepts only a path, as the
+    extension does.
+  * ``MODE_FD`` accepts any object whose ``read()`` method returns ``bytes``,
+    such as a ``gzip.GzipFile``. ``maxminddb.types.SupportsRead`` describes
+    this type.
+
+* ``MODE_AUTO`` now accepts a binary file object. Previously, it raised
+  ``TypeError``. It reads the file object into memory with the pure Python
+  reader, as ``MODE_FD`` does. The C extension needs a path, so lookups are
+  slower than with a path when the extension is installed.
+* The pure Python reader raises ``TypeError`` when the database argument does
+  not suit the mode.
+
+3.2.0 (2026-09-10)
+++++++++++++++++++
+
+* Added limits to pure Python record and metadata decoding to prevent denial
+  of service from crafted databases: 65,536 values, 512 nesting levels, and
+  2 MiB of string and bytes payload. Exceeding a limit raises
+  ``InvalidDatabaseError``. CPython may reach its recursion limit earlier,
+  which raises the same error.
+* Rejected unsigned integers longer than 16 bytes and signed integers longer
+  than 4 bytes before reading their payload.
+* Updated the vendored libmaxminddb to 1.14.0, which adds the same resource
+  limits to the C extension.
+* Truncated reads that previously raised ``IndexError`` or ``struct.error``
+  now raise ``InvalidDatabaseError``.
+* The pure Python reader now rejects invalid search tree sizes when opening
+  a database.
+* Improved pure Python lookup performance.
+
+3.1.1 (2026-03-05)
+++++++++++++++++++
+
+* The vendored ``libmaxminddb`` has been updated to 1.13.3. This includes
+  a fix for the validation of empty maps and arrays at the end of the
+  metadata section. Previously, the extension would incorrectly reject
+  databases where a 0-element map or array was the last field in metadata.
+  Reported in vimt/MaxMind-DB-Writer-python#16.
+
+3.1.0 (2026-02-24)
+++++++++++++++++++
+
+* The vendored ``libmaxminddb`` has been updated to 1.13.1. This includes
+  several security hardening improvements when reading corrupt or malicious
+  database files, including fixes for integer overflows, bounds checking, and
+  use-after-free prevention.
+
+3.0.0 (2025-10-15)
+++++++++++++++++++
+
+* IMPORTANT: Python 3.10 or greater is required. If you are using an older
+  version, please use an earlier release.
+* Databases can now be loaded from buffers. This can be done by passing in a
+  buffer as the database and using mode ``MODE_FD``. Pull request by Emanuel
+  Seemann. GitHub #234.
+* The C extension now supports Python 3.13+ free-threading mode and is
+  thread-safe for concurrent reads on platforms with pthread support (such as
+  Linux and macOS) and Windows. On other platforms, the extension will use
+  GIL-based protection.
+* The C extension now uses PEP 489 multi-phase initialization, enabling
+  proper subinterpreter support and module isolation for Python 3.12+. This
+  modernizes the extension to use heap types instead of static types and
+  implements per-module state management. Key benefits include support for
+  Python 3.12+ isolated subinterpreters, multiple independent module
+  instances, and future-proofing for Python 3.14's InterpreterPoolExecutor.
+  Requested by R. Christian McDonald in GitHub #105.
+* **BREAKING**: The pure Python ``maxminddb.reader.Metadata`` class has been
+  converted to a frozen dataclass. The ``__repr__`` format has changed from
+  ``maxminddb.reader.Metadata(...)`` to ``Metadata(...)``. More importantly,
+  all Metadata attributes are now readonly and cannot be modified after
+  creation. If you were modifying metadata attributes after object creation,
+  you will need to update your code. All functionality remains the same,
+  including the ``node_byte_size`` and ``search_tree_size`` properties. Note:
+  The C extension's Metadata class has always been readonly, so this change
+  brings the pure Python implementation into consistency with the C extension.
+* MODE constants have been converted to an ``IntEnum`` (``maxminddb.const.Mode``).
+  The old constants (``MODE_AUTO``, ``MODE_FILE``, etc.) remain available for
+  backward compatibility and are now aliases to the enum members. This provides
+  better IDE support and type safety while maintaining full backward
+  compatibility. You can now use either ``Mode.FILE`` or ``MODE_FILE`` - both
+  work identically. Since ``IntEnum`` is int-compatible, existing code using
+  the constants will continue to work without modification.
+
+2.8.2 (2025-07-25)
+++++++++++++++++++
+
+* Pyodide binary wheels will no longer be built by default. It is not possible to
+  upload these to PyPI currently. We may consider reenabling them and putting them
+  on the GitHub Releases page in the future if there is interest.
+
+2.8.1 (2025-07-25)
+++++++++++++++++++
+
+* When upgrading to ``cibuildwheel`` 3.0.0, we inadvertently changed the artifact
+  names, causing the wheels to not be uploaded to PyPI. This release fixes that.
+  There are no other code changes. Report by David Hotham. GitHub #225.
+
+2.8.0 (2025-07-25)
+++++++++++++++++++
+
+* Python 3.14 is now officially supported, including binary wheels.
+* We have updated the platforms that we build binary wheels for. In particular,
+  we now build wheels for Android, iOS, Windows Arm, and Pyodide, and we have
+  dropped 686 (32 bit), ppc64le, and s390x builds on Linux.
+
+2.7.0 (2025-05-05)
+++++++++++++++++++
+
+* IMPORTANT: Python 3.9 or greater is required. If you are using an older
+  version, please use an earlier release.
+* The vendored ``libmaxminddb`` has been updated to 1.12.2.
+* The C extension now checks that the database metadata lookup was
+  successful.
+* A theoretical segmentation fault with the C extension when doing lookups
+  on a corrupt or invalid database was fixed.
+
+2.6.3 (2025-01-09)
+++++++++++++++++++
+
+* The vendored ``libmaxminddb`` has been updated to 1.12.0. This fixes a
+  memory leak when opening a database fails.
+* Binary wheels are now built for Python 3.13.
+
+2.6.2 (2024-06-10)
+++++++++++++++++++
+
+* The vendored ``libmaxminddb`` has been updated to 1.10.0. This fixes a
+  bug that would cause incorrect results on databases that had search
+  trees greater than 4 GB.
+
+2.6.1 (2024-04-12)
+++++++++++++++++++
+
+* This release includes no source code changes. The only changes are to
+  the release workflow.
+* Binary wheels are now built on Linux for aarch64. Pull request by Kevin
+  Park. GitHub #160.
+* Binary wheels are now built on macOS for Apple silicon. Requested by
+  Kevin Park. GitHub #152.
+
+2.6.0 (2024-03-19)
+++++++++++++++++++
+
+* Added type annotations for instance variables on ``Metadata``
+* Updated type stubs for ``maxminddb.extension``.
+* ``setuptools`` is no longer listed as a runtime dependency. Pull request
+  by Lewis Collard. GitHub #155.
+
+2.5.2 (2024-01-09)
+++++++++++++++++++
+
+* The vendored ``libmaxminddb`` version was updated to 1.9.0. This fixes
+  an issue when reading databases with a search tree exceeding 2 GB.
+  Reported by Sami Salonen. GitHub #146.
+
+2.5.1 (2023-11-09)
+++++++++++++++++++
+
+* This is a re-release of 2.5.0 to address missing files from the sdist.
+  Reported by Lumír 'Frenzy' Balhar. GitHub #132.
+
+2.5.0 (2023-11-08)
+++++++++++++++++++
+
+* IMPORTANT: Python 3.8 or greater is required. If you are using an older
+  version, please use an earlier release.
+* Windows is now supported by the C extension.
+* The ``Reader`` class now implements the ``__iter__`` method. This will
+  return an iterator that iterates over all records in the database,
+  excluding repeated aliased of the IPv4 network. Requested by
+  Jean-Baptiste Braun and others. GitHub #23.
+* The multiprocessing test now explicitly uses ``fork``. This allows it
+  to run successfully on macOS. Pull request by Theodore Ni. GitHub #116.
+* A vendored copy of ``libmaxminddb`` will now be used by default when
+  building the extension. If you wish to continue using the system shared
+  library, you may set the ``MAXMINDDB_USE_SYSTEM_LIBMAXMINDDB`` environment
+  variable to a true value when building the extension. 
+* The C extension now builds on Python 3.13.
+* The C extension will now be built for PyPy.
+
+2.4.0 (2023-06-28)
+++++++++++++++++++
+
+* Package metadata was migrated from ``setup.py`` to ``setup.cfg``. GitHub
+  #113.
+* The C extension now decrements the reference count on an object
+  containing the database filename after its use in an error message rather
+  than before. Pull request by Lumír 'Frenzy' Balhar. GitHub #114.
+
+2.3.0 (2023-05-09)
+++++++++++++++++++
+
+* IMPORTANT: Python 3.7 or greater is required. If you are using an older
+  version, please use an earlier release.
+* ``distutils`` is no longer used for building the C extension.
+* Missing ``Py_INCREF`` was added to module initialization for the C
+  extension. Pull request by R. Christian McDonald. GitHub #106.
+
+2.2.0 (2021-09-24)
+++++++++++++++++++
+
+* The return type for ``maxminddb.open_database()`` has been simplified
+  to be just the ``Reader`` class as opposed to a union of that with
+  the extension class. This is done by casting the extension to
+  ``Reader``. The extension class has the same public API as the
+  pure Python implementation. This simplifies type checking for users of
+  this library. The ``Reader`` class is exposed as ``maxminddb.Reader``.
+  Pull request by wouter bolsterlee. GitHub #88.
+* ``maxminddb.__all__`` is now set to define a public API. Pull request
+  by wouter bolsterlee. GitHub #88.
+* Fix minor regression in ``repr`` output of ``maxminddb.reader.Metadata``
+  in 2.1.0.
+
+2.1.0 (2021-09-18)
+++++++++++++++++++
+
+* The C extension now correctly supports objects that implement the
+  ``os.PathLike`` interface.
+* When opening a database fails due to an access issue, the correct
+  ``OSError`` subclass will now be thrown.
+* The ``Metadata`` class object is now available from the C extension
+  module as ``maxminddb.extension.Metadata`` rather than
+  ``maxminddb.extension.extension``.
+* Type stubs have been added for ``maxminddb.extension``.
+
+2.0.3 (2020-10-16)
+++++++++++++++++++
+
+* The 2.0.0 release unintentionally required Python to be compiled with
+  ``mmap`` support for the module to work. ``mmap`` is now optional
+  again. Reported by john-heasman-cg. GitHub #76.
+
+2.0.2 (2020-07-28)
+++++++++++++++++++
+
+* Added ``py.typed`` file per PEP 561. Reported by Árni Már Jónsson.
+
+2.0.1 (2020-07-22)
+++++++++++++++++++
+
+* Fix minimum required python version in ``setup.py``. Pull request by
+  Boros Gábor. GitHub #69 & #70.
+
+2.0.0 (2020-07-21)
+++++++++++++++++++
+
+* IMPORTANT: Python 3.6 or greater is required. If you are using an older
+  version, please use a 1.x.x release.
+* Type hints have been added.
+
+1.5.4 (2020-05-05)
+++++++++++++++++++
+
+* 1.5.3 was missing a test database. This release adds the test file.
+  There are no other changes. Reported by Lumír 'Frenzy' Balhar. GitHub #60.
+
+1.5.3 (2020-05-04)
+++++++++++++++++++
+
+* Fix a segfault when decoding a database with a corrupt data section.
+  Reported by Robert Scott. GitHub #58.
+
+1.5.2 (2019-12-20)
+++++++++++++++++++
+
+* Minor performance improvements in the pure Python reader.
+
+1.5.1 (2019-09-27)
+++++++++++++++++++
+
+* Fix a possible segfault due to not correctly incrementing the reference
+  on a returned object.
+
+1.5.0 (2019-09-27)
+++++++++++++++++++
+
+* Python 3.3 and 3.4 are no longer supported.
+* The extension source directory was moved to prevent an ``ImportWarning``
+  when importing the module on Python 2 with ``-Wdefault`` set. Reported by
+  David Szotten and Craig de Stigter. GitHub #31.
+* The ``get`` method now accepts ``ipaddress.IPv4Address`` and
+  ``ipaddress.IPv6Address`` objects in addition to strings.  This works with
+  both the pure Python implementation as well as the extension. Based on a
+  pull request #48 by Eric Pruitt. GitHub #50.
+* A new method, ``get_with_prefix_len``, was added. This method returns a
+  tuple containing the record and the prefix length.
+
+1.4.1 (2018-06-22)
+++++++++++++++++++
+
+* Fix test failure on Python 3.7. Reported by Carl George. GitHub #35.
+
+1.4.0 (2018-05-25)
+++++++++++++++++++
+
+* IMPORTANT: Previously, the pure Python reader would allow
+  ``ipaddress.IPv4Address`` and ``ipaddress.IPv6Address`` objects when calling
+  ``.get()``. This would fail with the C extension. The fact that these objects
+  worked at all was an implementation detail and has varied with different
+  releases. This release makes the pure Python implementation consistent
+  with the extension. A ``TypeError`` will now be thrown if you attempt to
+  use these types with either the pure Python implementation or the
+  extension. The IP address passed to ``.get()`` should be a string type.
+* Fix issue where incorrect size was used when unpacking some types with the
+  pure Python reader. Reported by Lee Symes. GitHub #30.
+* You may now pass in the database via a file descriptor rather than a file
+  name when creating a new ``maxminddb.Reader`` object using ``MODE_FD``.
+  This will read the database from the file descriptor into memory. Pull
+  request by nkinkade. GitHub #33.
+
+1.3.0 (2017-03-13)
+++++++++++++++++++
+
+* ``maxminddb.Reader`` and the C extension now support being used in a context
+  manager. Pull request by Joakim Uddholm. GitHub #21 & #28.
+* Provide a more useful error message when ``MODE_MMAP_EXT`` is requested but
+  the C extension is not available.
+
+1.2.3 (2017-01-11)
+++++++++++++++++++
+
+* Improve compatibility with other Python 2 ``ipaddress`` backports. Although
+  ``ipaddress`` is highly recommended, ``py2-ipaddress`` and
+  ``backport_ipaddress`` should now work. Incompatibility reported by
+  John Zadroga on ``geoip2`` GitHub issue #41.
+
+1.2.2 (2016-11-21)
+++++++++++++++++++
+
+* Fix to the classifiers in ``setup.py``. No code changes.
+
+1.2.1 (2016-06-10)
+++++++++++++++++++
+
+* This module now uses the ``ipaddress`` module for Python 2 rather than the
+  ``ipaddr`` module. Users should notice no behavior change beyond the change
+  in dependencies.
+* Removed ``requirements.txt`` from ``MANIFEST.in`` in order to stop warning
+  during installation.
+* Added missing test data.
+
+1.2.0 (2015-04-07)
+++++++++++++++++++
+
+* Previously if ``MODE_FILE`` was used and the database was loaded before
+  forking, the parent and children would use the same file table entry without
+  locking causing errors reading the database due to the offset being changed
+  by other processes. In ``MODE_FILE``, the reader will now use ``os.pread``
+  when available and a lock when ``os.pread`` is not available (e.g., Python
+  2). If you are using ``MODE_FILE`` on a Python without ``os.pread``, it is
+  recommended that you open the database after forking to reduce resource
+  contention.
+* The ``Metadata`` class now overloads ``__repr__`` to provide a useful
+  representation of the contents when debugging.
+* An ``InvalidDatabaseError`` will now be thrown if the data type read from
+  the database is invalid. Previously a ``KeyError`` was thrown.
+
+1.1.1 (2014-12-10)
+++++++++++++++++++
+
+* On Python 3 there was a potential issue where ``open_database`` with
+  ``MODE_AUTO`` would try to use the C extension when it was not available.
+  This could cause the function to fail rather than falling back to a pure
+  Python mode.
+
+1.1.0 (2014-12-09)
+++++++++++++++++++
+
+* The pure Python reader now supports an optional file and memory mode in
+  addition to the existing memory-map mode. If your Python does not provide
+  the ``mmap`` module, the file mode will be used by default.
+* The preferred method for opening a database is now the ``open_database``
+  function in ``maxminddb``. This function now takes an optional read
+  ``mode``.
+* The C extension no longer creates its own ``InvalidDatabaseError`` class
+  and instead uses the one defined in ``maxminddb.errors``.
+
+1.0.0 (2014-09-22)
+++++++++++++++++++
+
+* First production release.
+* Two potential C extension issues discovered by Coverity were fixed:
+  - There was a small resource leak that occurred when the system ran out of
+    memory.
+  - There was a theoretical null pointer issue that would occur only if
+    libmaxminddb returned invalid data.
+
+0.3.3 (2014-04-09)
+++++++++++++++++++
+
+* Corrected initialization of objects in C extension and made the objects
+  behave more similarly to their pure Python counterparts.
+
+0.3.2 (2014-03-28)
+++++++++++++++++++
+
+* Switched to Apache 2.0 license.
+* We now open the database file in read-only mode.
+* Minor code clean-up.
+
+0.3.1 (2014-02-11)
+++++++++++++++++++
+
+* Fixed packaging problem that caused ``import`` to fail.
+
+0.3.0 (2014-02-11)
+++++++++++++++++++
+
+* This release includes a pure Python implementation of the database reader.
+  If ``libmaxminddb`` is not available or there are compilation issues, the
+  module will fall-back to the pure Python implementation.
+* Minor changes were made to the exceptions of the C extension make them
+  consistent with the pure Python implementation.
+
+0.2.1 (2013-12-18)
+++++++++++++++++++
+
+* Removed -Werror compiler flag as it was causing problems for some OS X
+  users.
+
+0.2.0 (2013-10-15)
+++++++++++++++++++
+
+* Refactored code and fixed a memory leak when throwing an exception.
+
+0.1.1 (2013-10-03)
+++++++++++++++++++
+
+* Added MANIFEST.in
+
+0.1.0 (2013-10-02)
+++++++++++++++++++
+
+* Initial release
